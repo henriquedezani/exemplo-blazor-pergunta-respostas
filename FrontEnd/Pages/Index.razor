@@ -1,0 +1,126 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+@using System
+@inject NavigationManager NavigationManager
+@inject HttpClient Http
+@implements IAsyncDisposable
+
+<h2>Sala Minha Sala</h2>
+
+<div class="form-group">
+    <textarea class="form-control" @bind="text" rows="5" placeholder="Escreva aqui sua pergunta."></textarea>
+</div>
+<button @onclick="Send" class="btn btn-primary">Enviar</button>
+@* <button @onclick="Send" disabled="@(!IsConnected)">Send</button> *@
+
+<br/><br/>
+@* <ul class="list-group">  
+
+    @foreach (var question in questions.OrderByDescending(e => e.Likes))
+    {
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            @question.Text
+
+            <div>
+                <button type="button" @onclick="() => Like(question.QuestionId)" class="btn btn-sm btn-outline-primary">@question.Likes Likes</button>
+                <button type="button" class="btn btn-sm btn-outline-danger disabled">Delete</button>
+            </div>
+        </li>
+    }
+</ul> *@
+
+
+    @foreach (var question in questions.OrderByDescending(e => e.Likes))
+    {
+        <div class="card" style="margin-top: 8px;">
+            <div class="card-body">
+            <p class="card-text">@question.Text</p>
+            <div>
+                <button type="button" @onclick="() => Like(question.QuestionId)" class="btn btn-sm btn-outline-primary">@question.Likes Likes</button>
+                @* <button type="button" class="btn btn-sm btn-outline-danger disabled">Delete</button> *@
+            </div>
+            </div>
+        </div>
+    }
+
+@code {
+    private HubConnection hubConnection;
+    private List<Question> questions = new List<Question>();
+    
+    private string text;
+
+    protected override async Task OnInitializedAsync()
+    {
+        questions = await Http.GetFromJsonAsync<List<Question>>("https://localhost:5001/question/3fa85f64-5717-4562-b3fc-2c963f66afa6");
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl("https://localhost:5001/roomhub")
+            .Build();
+            @* .withAutomaticReconnect([0, 2000, 10000, 30000]) *@
+
+        @* .WithUrl(NavigationManager.ToAbsoluteUri("https://localhost:5001/roomhub")) *@
+
+        hubConnection.On<Question>("NewQuestionAdded", (question) =>
+        {
+            questions.Add(question);
+            StateHasChanged();
+        });
+
+        hubConnection.On<Guid>("QuestionLiked", (questionId) =>
+        {
+            Console.WriteLine(questionId);
+            var _question = questions.SingleOrDefault(q => q.QuestionId == questionId);
+            _question.Likes++;
+            StateHasChanged();
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    public class Question
+    {
+        public Guid QuestionId { get; set; }
+        public Guid RoomId { get; set; }
+        public Guid UserId { get; set; }
+        public string Text { get; set; }
+        public bool Read { get; set; }
+        public bool Live { get; set; }
+        public int Likes { get; set; }
+
+    }
+
+    Guid userId = new Guid("f0335879-964e-48c2-a9a3-2eb4923652e2");
+    Guid roomId = new Guid("3fa85f64-5717-4562-b3fc-2c963f66afa6");
+    
+
+    @* protected override async Task OnInitializedAsync()
+    {
+        // https://docs.microsoft.com/pt-br/aspnet/core/signalr/javascript-client?view=aspnetcore-5.0
+        //const connection = new signalR.HubConnectionBuilder()
+            //.withUrl("/chathub")
+            //.withAutomaticReconnect([0, 0, 10000])
+            //.build();
+
+            // .withAutomaticReconnect([0, 2000, 10000, 30000]) yields the default behavior
+    } *@
+
+    async Task Send() {
+        await hubConnection.SendAsync("AddQuestion", roomId, userId, text);
+        text = "";
+    }
+
+    async Task Like(Guid questionId) =>
+        await hubConnection.SendAsync("LikeQuestion", questionId, userId);
+
+
+    public bool IsConnected =>
+        hubConnection.State == HubConnectionState.Connected;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    } 
+}
